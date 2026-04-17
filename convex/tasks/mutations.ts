@@ -178,6 +178,9 @@ export const createSubtasks = internalMutation({
 export const deleteTask = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, { taskId }) => {
+    const task = await ctx.db.get(taskId);
+    if (!task) return;
+
     const notifications = await ctx.db
       .query("notifications")
       .withIndex("by_task", (q) => q.eq("taskId", taskId))

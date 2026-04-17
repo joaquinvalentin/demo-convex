@@ -17,11 +17,12 @@ export async function fetchSubtasks(title: string, description: string): Promise
       model: GROQ_MODEL,
       temperature: 0.3,
       max_tokens: 800,
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
           content:
-            'You are a task decomposition assistant for a software team. Break the given task into 3-5 concrete, actionable subtasks. Return ONLY valid JSON — an array of objects with "title" (max 60 chars) and "description" (one clear sentence) fields. No markdown fences, no explanations.',
+            'You are a task decomposition assistant for a software team. Break the given task into 3-5 concrete, actionable subtasks. Return a JSON object with a "subtasks" array, where each item has "title" (max 60 chars) and "description" (one clear sentence) fields.',
         },
         {
           role: "user",
@@ -34,13 +35,6 @@ export async function fetchSubtasks(title: string, description: string): Promise
   if (!res.ok) throw new Error(`Groq API error: ${res.status} ${res.statusText}`);
 
   const data = await res.json() as { choices: Array<{ message: { content: string } }> };
-  const raw = data.choices[0].message.content.trim();
-  const json = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  const sanitized = json.replace(/[\x00-\x1F\x7F]/g, (c) => {
-    if (c === "\n") return "\\n";
-    if (c === "\r") return "\\r";
-    if (c === "\t") return "\\t";
-    return "";
-  });
-  return JSON.parse(sanitized) as Subtask[];
+  const parsed = JSON.parse(data.choices[0].message.content) as { subtasks: Subtask[] };
+  return parsed.subtasks;
 }
