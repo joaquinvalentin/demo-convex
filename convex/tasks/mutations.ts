@@ -1,5 +1,17 @@
 import { mutation } from "../_generated/server";
 import { v } from "convex/values";
+import type { MutationCtx } from "../_generated/server";
+
+async function requireUser(ctx: MutationCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Not authenticated");
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+    .unique();
+  if (!user) throw new Error("User profile not found — call storeUser first");
+  return user;
+}
 
 export const create = mutation({
   args: {
@@ -7,10 +19,10 @@ export const create = mutation({
     description: v.string(),
     columnId: v.id("columns"),
     assigneeId: v.optional(v.id("users")),
-    createdBy: v.id("users"),
     priority: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
   },
   handler: async (ctx, args) => {
+    const creator = await requireUser(ctx);
     const existingTasks = await ctx.db
       .query("tasks")
       .withIndex("by_column", (q) => q.eq("columnId", args.columnId))
@@ -18,16 +30,15 @@ export const create = mutation({
 
     const taskId = await ctx.db.insert("tasks", {
       ...args,
+      createdBy: creator._id,
       order: existingTasks.length,
       createdAt: Date.now(),
     });
 
-    // Notify assignee if assigned to someone else
-    if (args.assigneeId && args.assigneeId !== args.createdBy) {
-      const creator = await ctx.db.get(args.createdBy);
+    if (args.assigneeId && args.assigneeId !== creator._id) {
       await ctx.db.insert("notifications", {
         userId: args.assigneeId,
-        message: `${creator?.displayName ?? "Someone"} assigned you to "${args.title}"`,
+        message: `${creator.displayName} assigned you to "${args.title}"`,
         taskId,
         read: false,
         createdAt: Date.now(),
@@ -42,29 +53,51 @@ export const moveToColumn = mutation({
   args: {
     taskId: v.id("tasks"),
     columnId: v.id("columns"),
-    movedBy: v.id("users"),
+    order: v.number(),
   },
-  handler: async (ctx, { taskId, columnId, movedBy }) => {
+  handler: async (ctx, { taskId, columnId, order }) => {
+    const mover = await requireUser(ctx);
     const task = await ctx.db.get(taskId);
     if (!task) throw new Error("Task not found");
 
-    const targetTasks = await ctx.db
+    // Re-number source column without the moved task
+    const sourceTasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_column", (q) => q.eq("columnId", task.columnId))
+      .collect();
+    const sourceRemaining = sourceTasks
+      .filter((t) => t._id !== taskId)
+      .sort((a, b) => a.order - b.order);
+    for (let i = 0; i < sourceRemaining.length; i++) {
+      if (sourceRemaining[i].order !== i) {
+        await ctx.db.patch(sourceRemaining[i]._id, { order: i });
+      }
+    }
+
+    // Re-number destination column, making room at `order`
+    const destTasks = await ctx.db
       .query("tasks")
       .withIndex("by_column", (q) => q.eq("columnId", columnId))
       .collect();
+    const destRemaining = destTasks
+      .filter((t) => t._id !== taskId)
+      .sort((a, b) => a.order - b.order);
+    for (let i = 0; i < destRemaining.length; i++) {
+      const newOrder = i >= order ? i + 1 : i;
+      if (destRemaining[i].order !== newOrder) {
+        await ctx.db.patch(destRemaining[i]._id, { order: newOrder });
+      }
+    }
 
-    await ctx.db.patch(taskId, {
-      columnId,
-      order: targetTasks.length,
-    });
+    // Move the task
+    await ctx.db.patch(taskId, { columnId, order });
 
-    // Notify assignee about the move
-    if (task.assigneeId && task.assigneeId !== movedBy) {
-      const mover = await ctx.db.get(movedBy);
+    // Notify assignee only on cross-column moves
+    if (task.assigneeId && task.assigneeId !== mover._id && task.columnId !== columnId) {
       const column = await ctx.db.get(columnId);
       await ctx.db.insert("notifications", {
         userId: task.assigneeId,
-        message: `${mover?.displayName ?? "Someone"} moved "${task.title}" to ${column?.title ?? "another column"}`,
+        message: `${mover.displayName} moved "${task.title}" to ${column?.title ?? "another column"}`,
         taskId,
         read: false,
         createdAt: Date.now(),
@@ -77,20 +110,18 @@ export const assign = mutation({
   args: {
     taskId: v.id("tasks"),
     assigneeId: v.optional(v.id("users")),
-    assignedBy: v.id("users"),
   },
-  handler: async (ctx, { taskId, assigneeId, assignedBy }) => {
+  handler: async (ctx, { taskId, assigneeId }) => {
+    const assigner = await requireUser(ctx);
     const task = await ctx.db.get(taskId);
     if (!task) throw new Error("Task not found");
 
     await ctx.db.patch(taskId, { assigneeId });
 
-    // Notify the new assignee
-    if (assigneeId && assigneeId !== assignedBy) {
-      const assigner = await ctx.db.get(assignedBy);
+    if (assigneeId && assigneeId !== assigner._id) {
       await ctx.db.insert("notifications", {
         userId: assigneeId,
-        message: `${assigner?.displayName ?? "Someone"} assigned you to "${task.title}"`,
+        message: `${assigner.displayName} assigned you to "${task.title}"`,
         taskId,
         read: false,
         createdAt: Date.now(),
@@ -117,12 +148,11 @@ export const updateTask = mutation({
 export const deleteTask = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, { taskId }) => {
-    // Delete related notifications
-    const notifications = await ctx.db.query("notifications").collect();
+    const notifications = await ctx.db
+      .query("notifications")
+      .collect();
     for (const n of notifications) {
-      if (n.taskId === taskId) {
-        await ctx.db.delete(n._id);
-      }
+      if (n.taskId === taskId) await ctx.db.delete(n._id);
     }
     await ctx.db.delete(taskId);
   },
