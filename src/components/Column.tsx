@@ -18,7 +18,7 @@ const columnIcons: Record<string, string> = {
 
 export function Column({ column, onAddTask }: ColumnProps) {
   const tasks = useQuery(api.tasks.listByColumn, { columnId: column._id });
-  const sortedTasks = tasks?.sort((a, b) => a.order - b.order) ?? [];
+  const sortedTasks = tasks ? [...tasks].sort((a, b) => a.order - b.order) : [];
 
   return (
     <div className="column" data-column={column.title}>

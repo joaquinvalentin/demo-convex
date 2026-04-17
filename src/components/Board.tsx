@@ -25,12 +25,20 @@ export function Board() {
 
   const handleDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
-    const { draggableId, destination } = result;
-    await moveToColumn({
-      taskId: draggableId as Id<"tasks">,
-      columnId: destination.droppableId as Id<"columns">,
-      order: destination.index,
-    });
+    const { draggableId, source, destination } = result;
+    if (
+      source.droppableId === destination.droppableId &&
+      source.index === destination.index
+    ) return;
+    try {
+      await moveToColumn({
+        taskId: draggableId as Id<"tasks">,
+        columnId: destination.droppableId as Id<"columns">,
+        order: destination.index,
+      });
+    } catch (err) {
+      console.error("Failed to move task:", err);
+    }
   };
 
   return (

@@ -60,11 +60,30 @@ export const moveToColumn = mutation({
     const task = await ctx.db.get(taskId);
     if (!task) throw new Error("Task not found");
 
-    // Re-number source column without the moved task
+    if (task.columnId === columnId) {
+      // Same-column reorder: single pass
+      const colTasks = await ctx.db
+        .query("tasks")
+        .withIndex("by_column", (q) => q.eq("columnId", columnId))
+        .take(500);
+      const others = colTasks
+        .filter((t) => t._id !== taskId)
+        .sort((a, b) => a.order - b.order);
+      others.splice(order, 0, task);
+      for (let i = 0; i < others.length; i++) {
+        if (others[i].order !== i) {
+          await ctx.db.patch(others[i]._id, { order: i });
+        }
+      }
+      await ctx.db.patch(taskId, { order });
+      return;
+    }
+
+    // Cross-column move
     const sourceTasks = await ctx.db
       .query("tasks")
       .withIndex("by_column", (q) => q.eq("columnId", task.columnId))
-      .collect();
+      .take(500);
     const sourceRemaining = sourceTasks
       .filter((t) => t._id !== taskId)
       .sort((a, b) => a.order - b.order);
@@ -74,11 +93,10 @@ export const moveToColumn = mutation({
       }
     }
 
-    // Re-number destination column, making room at `order`
     const destTasks = await ctx.db
       .query("tasks")
       .withIndex("by_column", (q) => q.eq("columnId", columnId))
-      .collect();
+      .take(500);
     const destRemaining = destTasks
       .filter((t) => t._id !== taskId)
       .sort((a, b) => a.order - b.order);
@@ -89,11 +107,9 @@ export const moveToColumn = mutation({
       }
     }
 
-    // Move the task
     await ctx.db.patch(taskId, { columnId, order });
 
-    // Notify assignee only on cross-column moves
-    if (task.assigneeId && task.assigneeId !== mover._id && task.columnId !== columnId) {
+    if (task.assigneeId && task.assigneeId !== mover._id) {
       const column = await ctx.db.get(columnId);
       await ctx.db.insert("notifications", {
         userId: task.assigneeId,
