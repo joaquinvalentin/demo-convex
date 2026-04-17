@@ -1,24 +1,19 @@
-import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { AuthProvider, useAuth } from "./context/AuthContext";
-import { LoginPage } from "./components/LoginPage";
+import { authClient } from "./lib/auth-client";
+import { AuthProvider } from "./context/AuthContext";
 import { Board } from "./components/Board";
+import { LoginPage } from "./components/LoginPage";
 import "./App.css";
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
-
 function AppContent() {
-  const { userId } = useAuth();
-  return userId ? <Board /> : <LoginPage />;
+  const { data: session, isPending } = authClient.useSession();
+  if (isPending) return null;
+  return session ? <Board /> : <LoginPage />;
 }
 
-function App() {
+export default function App() {
   return (
-    <ConvexProvider client={convex}>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </ConvexProvider>
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
-
-export default App;

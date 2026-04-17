@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useAuth } from "../context/AuthContext";
+import { authClient } from "../lib/auth-client";
 
 export function LoginPage() {
-  const { login } = useAuth();
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -12,12 +13,24 @@ export function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-
-    const success = await login(username, password);
-    if (!success) {
-      setError("Invalid credentials. Try user1/user1 or user2/user2");
+    try {
+      if (mode === "signin") {
+        const result = await authClient.signIn.email({ email, password });
+        if (result.error) setError(result.error.message ?? "Sign in failed");
+      } else {
+        const result = await authClient.signUp.email({ email, password, name });
+        if (result.error) setError(result.error.message ?? "Sign up failed");
+      }
+    } catch {
+      setError("Authentication failed. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  const switchMode = (next: "signin" | "signup") => {
+    setMode(next);
+    setError("");
   };
 
   return (
@@ -28,15 +41,30 @@ export function LoginPage() {
           <p>Real-time collaborative task management</p>
         </div>
         <form onSubmit={handleSubmit}>
+          {mode === "signup" && (
+            <div className="form-group">
+              <label htmlFor="name">Display Name</label>
+              <input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                autoFocus
+                required
+              />
+            </div>
+          )}
           <div className="form-group">
-            <label htmlFor="username">Username</label>
+            <label htmlFor="email">Email</label>
             <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="user1 or user2"
-              autoFocus
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoFocus={mode === "signin"}
+              required
             />
           </div>
           <div className="form-group">
@@ -46,16 +74,31 @@ export function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Same as username"
+              placeholder="Password"
+              required
             />
           </div>
           {error && <div className="error-message">{error}</div>}
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? "..." : mode === "signin" ? "Sign In" : "Sign Up"}
           </button>
         </form>
         <div className="login-hint">
-          <strong>Demo accounts:</strong> user1 / user1 &nbsp;·&nbsp; user2 / user2
+          {mode === "signin" ? (
+            <>
+              Don&apos;t have an account?{" "}
+              <button className="btn-link" onClick={() => switchMode("signup")}>
+                Sign Up
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <button className="btn-link" onClick={() => switchMode("signin")}>
+                Sign In
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { Id } from "../../convex/_generated/dataModel";
-import { useAuth } from "../context/AuthContext";
+import type { Id } from "../../convex/_generated/dataModel";
 
 interface CreateTaskModalProps {
   columnId: Id<"columns">;
@@ -10,7 +9,6 @@ interface CreateTaskModalProps {
 }
 
 export function CreateTaskModal({ columnId, onClose }: CreateTaskModalProps) {
-  const { userId } = useAuth();
   const users = useQuery(api.auth.listUsers);
   const createTask = useMutation(api.tasks.create);
 
@@ -21,14 +19,13 @@ export function CreateTaskModal({ columnId, onClose }: CreateTaskModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId || !title.trim()) return;
+    if (!title.trim()) return;
 
     await createTask({
       title: title.trim(),
       description: description.trim(),
       columnId,
       priority,
-      createdBy: userId,
       assigneeId: assigneeId ? (assigneeId as Id<"users">) : undefined,
     });
 

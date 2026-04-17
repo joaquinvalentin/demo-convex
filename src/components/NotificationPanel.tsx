@@ -1,23 +1,17 @@
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useAuth } from "../context/AuthContext";
 
 interface NotificationPanelProps {
   onClose: () => void;
 }
 
 export function NotificationPanel({ onClose }: NotificationPanelProps) {
-  const { userId } = useAuth();
-  const notifications = useQuery(
-    api.notifications.listForUser,
-    userId ? { userId } : "skip"
-  );
+  const notifications = useQuery(api.notifications.listForUser);
   const markAsRead = useMutation(api.notifications.markAsRead);
   const markAllAsRead = useMutation(api.notifications.markAllAsRead);
 
   const handleMarkAllRead = async () => {
-    if (!userId) return;
-    await markAllAsRead({ userId });
+    await markAllAsRead({});
   };
 
   return (

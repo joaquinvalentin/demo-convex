@@ -1,49 +1,38 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
-import { useMutation } from "convex/react";
+import { createContext, useContext, useEffect } from "react";
+import type { ReactNode } from "react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { Id } from "../../convex/_generated/dataModel";
+import { authClient } from "../lib/auth-client";
+import type { Id } from "../../convex/_generated/dataModel";
 
-interface AuthState {
+interface AuthContextValue {
   userId: Id<"users"> | null;
   displayName: string | null;
-}
-
-interface AuthContextType extends AuthState {
-  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [auth, setAuth] = useState<AuthState>(() => {
-    const stored = sessionStorage.getItem("auth");
-    return stored ? JSON.parse(stored) : { userId: null, displayName: null };
-  });
+  const { data: session } = authClient.useSession();
+  const userProfile = useQuery(api.auth.getCurrentUser);
+  const storeUser = useMutation(api.auth.storeUser);
 
-  const loginMutation = useMutation(api.auth.login);
+  // Create Convex user profile on first login
+  useEffect(() => {
+    if (session && userProfile === null) {
+      void storeUser({ displayName: session.user.name ?? undefined });
+    }
+  }, [session, userProfile, storeUser]);
 
-  const login = useCallback(
-    async (username: string, password: string) => {
-      const result = await loginMutation({ username, password });
-      if (result.success && result.userId) {
-        const state = { userId: result.userId, displayName: result.displayName ?? username };
-        setAuth(state);
-        sessionStorage.setItem("auth", JSON.stringify(state));
-        return true;
-      }
-      return false;
-    },
-    [loginMutation]
-  );
-
-  const logout = useCallback(() => {
-    setAuth({ userId: null, displayName: null });
-    sessionStorage.removeItem("auth");
-  }, []);
+  const logout = () => { void authClient.signOut(); };
 
   return (
-    <AuthContext.Provider value={{ ...auth, login, logout }}>
+    <AuthContext.Provider value={{
+      userId: userProfile?._id ?? null,
+      displayName: userProfile?.displayName ?? null,
+      logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );
