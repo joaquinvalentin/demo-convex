@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "convex/react";
 import { DragDropContext } from "@hello-pangea/dnd";
 import type { DropResult } from "@hello-pangea/dnd";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { useAuth } from "../context/AuthContext";
 import { Column } from "./Column";
 import { CreateTaskModal } from "./CreateTaskModal";
@@ -14,7 +14,42 @@ export function Board() {
   const columns = useQuery(api.columns.list);
   const unreadCount = useQuery(api.notifications.unreadCount);
   const seedData = useMutation(api.seed.seedData);
-  const moveToColumn = useMutation(api.tasks.moveToColumn);
+  const moveToColumn = useMutation(api.tasks.moveToColumn).withOptimisticUpdate(
+    (localStore, { taskId, columnId: destColumnId, order: destOrder }) => {
+      const allColumns = localStore.getQuery(api.columns.list, {});
+      if (!allColumns) return;
+
+      let sourceColumnId: Id<"columns"> | undefined;
+      let movedTask: Doc<"tasks"> | undefined;
+      for (const col of allColumns) {
+        const tasks = localStore.getQuery(api.tasks.listByColumn, { columnId: col._id });
+        const found = tasks?.find((t) => t._id === taskId);
+        if (found) { sourceColumnId = col._id; movedTask = found; break; }
+      }
+      if (!sourceColumnId || !movedTask) return;
+
+      if (sourceColumnId === destColumnId) {
+        const tasks = localStore.getQuery(api.tasks.listByColumn, { columnId: destColumnId });
+        if (!tasks) return;
+        const others = tasks.filter((t) => t._id !== taskId).sort((a, b) => a.order - b.order);
+        others.splice(destOrder, 0, movedTask);
+        localStore.setQuery(api.tasks.listByColumn, { columnId: destColumnId }, others.map((t, i) => ({ ...t, order: i })));
+      } else {
+        const sourceTasks = localStore.getQuery(api.tasks.listByColumn, { columnId: sourceColumnId });
+        if (sourceTasks) {
+          localStore.setQuery(api.tasks.listByColumn, { columnId: sourceColumnId },
+            sourceTasks.filter((t) => t._id !== taskId).sort((a, b) => a.order - b.order).map((t, i) => ({ ...t, order: i }))
+          );
+        }
+        const destTasks = localStore.getQuery(api.tasks.listByColumn, { columnId: destColumnId });
+        if (destTasks) {
+          const others = destTasks.filter((t) => t._id !== taskId).sort((a, b) => a.order - b.order);
+          others.splice(destOrder, 0, { ...movedTask, columnId: destColumnId, order: destOrder });
+          localStore.setQuery(api.tasks.listByColumn, { columnId: destColumnId }, others.map((t, i) => ({ ...t, order: i })));
+        }
+      }
+    }
+  );
 
   const [createModalColumn, setCreateModalColumn] = useState<Id<"columns"> | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
