@@ -9,4 +9,5 @@ export const notificationsTable = defineTable({
   createdAt: v.number(),
 })
   .index("by_user", ["userId"])
-  .index("by_user_unread", ["userId", "read"]);
+  .index("by_user_unread", ["userId", "read"])
+  .index("by_task", ["taskId"]);

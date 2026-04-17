@@ -1,17 +1,6 @@
-import { mutation } from "../_generated/server";
+import { mutation, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
-import type { MutationCtx } from "../_generated/server";
-
-async function requireUser(ctx: MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authenticated");
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-    .unique();
-  if (!user) throw new Error("User profile not found — call storeUser first");
-  return user;
-}
+import { requireUser } from "../lib/auth";
 
 export const create = mutation({
   args: {
@@ -61,7 +50,6 @@ export const moveToColumn = mutation({
     if (!task) throw new Error("Task not found");
 
     if (task.columnId === columnId) {
-      // Same-column reorder: single pass
       const colTasks = await ctx.db
         .query("tasks")
         .withIndex("by_column", (q) => q.eq("columnId", columnId))
@@ -79,7 +67,6 @@ export const moveToColumn = mutation({
       return;
     }
 
-    // Cross-column move
     const sourceTasks = await ctx.db
       .query("tasks")
       .withIndex("by_column", (q) => q.eq("columnId", task.columnId))
@@ -161,14 +148,42 @@ export const updateTask = mutation({
   },
 });
 
+export const createSubtasks = internalMutation({
+  args: {
+    subtasks: v.array(v.object({ title: v.string(), description: v.string() })),
+    columnId: v.id("columns"),
+    priority: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+  },
+  handler: async (ctx, { subtasks, columnId, priority }) => {
+    const creator = await requireUser(ctx);
+    const existingTasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_column", (q) => q.eq("columnId", columnId))
+      .take(500);
+
+    for (let i = 0; i < subtasks.length; i++) {
+      await ctx.db.insert("tasks", {
+        title: subtasks[i].title,
+        description: subtasks[i].description,
+        columnId,
+        priority,
+        createdBy: creator._id,
+        order: existingTasks.length + i,
+        createdAt: Date.now(),
+      });
+    }
+  },
+});
+
 export const deleteTask = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, { taskId }) => {
     const notifications = await ctx.db
       .query("notifications")
+      .withIndex("by_task", (q) => q.eq("taskId", taskId))
       .collect();
     for (const n of notifications) {
-      if (n.taskId === taskId) await ctx.db.delete(n._id);
+      await ctx.db.delete(n._id);
     }
     await ctx.db.delete(taskId);
   },

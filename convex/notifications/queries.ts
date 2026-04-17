@@ -1,24 +1,28 @@
 import { query } from "../_generated/server";
-import { v } from "convex/values";
+import { getCurrentUser } from "../lib/auth";
 
 export const listForUser = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, { userId }) => {
-    return await ctx.db
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    return ctx.db
       .query("notifications")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .order("desc")
       .collect();
   },
 });
 
 export const unreadCount = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, { userId }) => {
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return 0;
     const unread = await ctx.db
       .query("notifications")
-      .withIndex("by_user_unread", (q) => q.eq("userId", userId).eq("read", false))
-      .collect();
+      .withIndex("by_user_unread", (q) => q.eq("userId", user._id).eq("read", false))
+      .take(100);
     return unread.length;
   },
 });

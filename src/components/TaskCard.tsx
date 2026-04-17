@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Draggable } from "@hello-pangea/dnd";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 
@@ -12,6 +13,8 @@ export function TaskCard({ task, index }: TaskCardProps) {
   const users = useQuery(api.auth.listUsers);
   const assign = useMutation(api.tasks.assign);
   const deleteTask = useMutation(api.tasks.deleteTask);
+  const decomposeTask = useAction(api.tasks.actions.decomposeTask);
+  const [decomposing, setDecomposing] = useState(false);
 
   const assignee = users?.find((u) => u._id === task.assigneeId);
   const creator = users?.find((u) => u._id === task.createdBy);
@@ -23,9 +26,28 @@ export function TaskCard({ task, index }: TaskCardProps) {
     });
   };
 
-  const handleDelete = async () => {
-    if (confirm("Delete this task?")) {
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
       await deleteTask({ taskId: task._id });
+    } catch (err) {
+      console.error("Failed to delete task:", err);
+    }
+  };
+
+  const handleDecompose = async () => {
+    setDecomposing(true);
+    try {
+      await decomposeTask({
+        title: task.title,
+        description: task.description ?? "",
+        columnId: task.columnId,
+        priority: task.priority,
+      });
+    } catch {
+      alert("Could not decompose task. Make sure GROQ_API_KEY is configured.");
+    } finally {
+      setDecomposing(false);
     }
   };
 
@@ -42,7 +64,13 @@ export function TaskCard({ task, index }: TaskCardProps) {
             <span className={`priority-badge priority-${task.priority}`}>
               {task.priority}
             </span>
-            <button className="btn-icon delete-btn" onClick={handleDelete} title="Delete">
+            <button
+              className="btn-icon delete-btn"
+              onClick={handleDelete}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              title="Delete"
+            >
               ✕
             </button>
           </div>
@@ -67,6 +95,17 @@ export function TaskCard({ task, index }: TaskCardProps) {
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="task-decompose">
+            <button
+              className="btn-decompose"
+              onClick={handleDecompose}
+              disabled={decomposing}
+              title="Break this task into subtasks with AI"
+            >
+              {decomposing ? "Decomposing..." : "✦ Decompose with AI"}
+            </button>
           </div>
 
           <div className="task-footer">
